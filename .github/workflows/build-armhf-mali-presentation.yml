@@ -102,22 +102,15 @@ jobs:
               raise SystemExit(f"expected exactly one wgpu-hal 27.0.4 egl.rs, found {matches}")
           p = matches[0]
           s = p.read_text()
-          old = """if cfg!(target_os = \"android\") || cfg!(windows) || cfg!(target_env = \"ohos\") {
-                        1
-                    } else {
-                        2
-                    };"""
+          old = "if cfg!(target_os = \"android\") || cfg!(windows) || cfg!(target_env = \"ohos\") {"
           new = """if cfg!(target_os = \"android\")
                         || cfg!(windows)
                         || cfg!(target_env = \"ohos\")
                         || cfg!(all(target_os = \"linux\", target_arch = \"arm\"))
-                    {
-                        1
-                    } else {
-                        2
-                    };"""
-          if old not in s:
-              raise SystemExit("expected wgpu-hal EGL tier-threshold snippet not found")
+                    {"""
+          count = s.count(old)
+          if count != 1:
+              raise SystemExit(f"expected exactly one wgpu-hal EGL threshold condition, found {count}")
           s = s.replace(old, new, 1)
           p.write_text(s)
           print(f"Patched ARM Linux EGL presentation acceptance in {p}")
