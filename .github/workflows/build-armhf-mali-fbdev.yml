@@ -6,6 +6,7 @@ on:
     paths:
       - '.github/workflows/build-armhf-mali-fbdev.yml'
       - '.github/test18_wgpu_patch.py'
+      - '.github/test23_filter_bypass_patch.py'
   workflow_dispatch:
 
 permissions:
@@ -88,6 +89,8 @@ jobs:
               s = s.replace(old, new)
           p.write_text(s)
           PY
+
+              python3 /work/.github/test23_filter_bypass_patch.py
 
               cd ruffle-src
               export CC_armv7_unknown_linux_gnueabihf=arm-linux-gnueabihf-gcc
