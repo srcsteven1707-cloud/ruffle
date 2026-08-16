@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   build-armhf:
-    name: armv7-unknown-linux-gnueabihf
+    name: armv7-unknown-linux-gnueabihf-bionic
     runs-on: ubuntu-24.04
 
     steps:
@@ -26,107 +26,119 @@ jobs:
           ref: master
           path: ruffle-src
 
-      - name: Install Rust ARMHF target
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
-          targets: armv7-unknown-linux-gnueabihf
-
-      - name: Configure Ubuntu ARMHF package sources
+      - name: Build inside Ubuntu 18.04 userspace
         run: |
-          sudo dpkg --add-architecture armhf
-          sudo sed -i '/^Types: deb$/a Architectures: amd64' /etc/apt/sources.list.d/ubuntu.sources
-          sudo tee /etc/apt/sources.list.d/armhf.sources >/dev/null <<'EOF'
-          Types: deb
-          URIs: http://ports.ubuntu.com/ubuntu-ports
-          Suites: noble noble-updates noble-backports noble-security
-          Components: main universe restricted multiverse
-          Architectures: armhf
-          Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/work" \
+            -w /work \
+            ubuntu:18.04 \
+            bash -lc '
+              set -euxo pipefail
+
+              export DEBIAN_FRONTEND=noninteractive
+
+              cat >/etc/apt/sources.list <<"EOF"
+          deb [arch=amd64] http://archive.ubuntu.com/ubuntu bionic main universe multiverse restricted
+          deb [arch=amd64] http://archive.ubuntu.com/ubuntu bionic-updates main universe multiverse restricted
+          deb [arch=amd64] http://archive.ubuntu.com/ubuntu bionic-security main universe multiverse restricted
+          deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports bionic main universe multiverse restricted
+          deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports bionic-updates main universe multiverse restricted
+          deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports bionic-security main universe multiverse restricted
           EOF
-          sudo apt-get update
 
-      - name: Install cross compiler and ARMHF development libraries
-        run: |
-          sudo apt-get install -y \
-            gcc-arm-linux-gnueabihf \
-            g++-arm-linux-gnueabihf \
-            pkg-config \
-            default-jre-headless \
-            libasound2-dev:armhf \
-            libudev-dev:armhf \
-            libfontconfig1-dev:armhf \
-            libssl-dev:armhf
+              dpkg --add-architecture armhf
+              apt-get update
+              apt-get install -y --no-install-recommends \
+                ca-certificates \
+                curl \
+                git \
+                file \
+                build-essential \
+                gcc-arm-linux-gnueabihf \
+                g++-arm-linux-gnueabihf \
+                binutils-arm-linux-gnueabihf \
+                pkg-config \
+                default-jre-headless \
+                libasound2-dev:armhf \
+                libudev-dev:armhf \
+                libfontconfig1-dev:armhf \
+                libssl-dev:armhf
 
-      - name: Configure ARMHF cross compilation
-        run: |
-          mkdir -p ruffle-src/.cargo
-          cat > ruffle-src/.cargo/config.toml <<'EOF'
+              curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+              . "$HOME/.cargo/env"
+              rustup target add armv7-unknown-linux-gnueabihf
+
+              mkdir -p ruffle-src/.cargo
+              cat >ruffle-src/.cargo/config.toml <<"EOF"
           [target.armv7-unknown-linux-gnueabihf]
           linker = "arm-linux-gnueabihf-gcc"
           ar = "arm-linux-gnueabihf-ar"
           EOF
 
-      - name: Patch FreeType 32-bit integer widths
-        run: |
-          python3 - <<'PY'
+              python3 - <<"PY"
           from pathlib import Path
-          p = Path('ruffle-src/frontend-utils/src/backends/ui/freetype_font_renderer.rs')
+          p = Path("ruffle-src/frontend-utils/src/backends/ui/freetype_font_renderer.rs")
           s = p.read_text()
           replacements = {
-              'convert_26_6_to_twips(self.size_metrics().ascender)':
-                  'convert_26_6_to_twips(self.size_metrics().ascender.into())',
-              'convert_26_6_to_twips(-self.size_metrics().descender)':
-                  'convert_26_6_to_twips((-self.size_metrics().descender).into())',
-              'convert_26_6_to_twips(glyph.advance().x)':
-                  'convert_26_6_to_twips(glyph.advance().x.into())',
-              'convert_26_6_to_twips(kerning.x)':
-                  'convert_26_6_to_twips(kerning.x.into())',
+              "convert_26_6_to_twips(self.size_metrics().ascender)": "convert_26_6_to_twips(self.size_metrics().ascender.into())",
+              "convert_26_6_to_twips(-self.size_metrics().descender)": "convert_26_6_to_twips((-self.size_metrics().descender).into())",
+              "convert_26_6_to_twips(glyph.advance().x)": "convert_26_6_to_twips(glyph.advance().x.into())",
+              "convert_26_6_to_twips(kerning.x)": "convert_26_6_to_twips(kerning.x.into())",
           }
           for old, new in replacements.items():
               if old not in s:
-                  raise SystemExit(f'expected source pattern not found: {old}')
-              s = s.replace(old, new, 1)
+                  raise SystemExit(f"expected ARMHF FreeType expression not found: {old}")
+              s = s.replace(old, new)
           p.write_text(s)
           PY
 
-      - name: Build Ruffle desktop ARMHF
-        working-directory: ruffle-src
-        env:
-          CC_armv7_unknown_linux_gnueabihf: arm-linux-gnueabihf-gcc
-          CXX_armv7_unknown_linux_gnueabihf: arm-linux-gnueabihf-g++
-          AR_armv7_unknown_linux_gnueabihf: arm-linux-gnueabihf-ar
-          PKG_CONFIG_ALLOW_CROSS: '1'
-          PKG_CONFIG_PATH: /usr/lib/arm-linux-gnueabihf/pkgconfig:/usr/share/pkgconfig
-          PKG_CONFIG_LIBDIR: /usr/lib/arm-linux-gnueabihf/pkgconfig:/usr/share/pkgconfig
-        run: |
-          cargo build --locked \
-            --package ruffle_desktop \
-            --release \
-            --target armv7-unknown-linux-gnueabihf \
-            --features jpegxr,fontconfig-dlopen
+              cd ruffle-src
+              export CC_armv7_unknown_linux_gnueabihf=arm-linux-gnueabihf-gcc
+              export CXX_armv7_unknown_linux_gnueabihf=arm-linux-gnueabihf-g++
+              export AR_armv7_unknown_linux_gnueabihf=arm-linux-gnueabihf-ar
+              export PKG_CONFIG_ALLOW_CROSS=1
+              export PKG_CONFIG_PATH=/usr/lib/arm-linux-gnueabihf/pkgconfig:/usr/share/pkgconfig
+              export PKG_CONFIG_LIBDIR=/usr/lib/arm-linux-gnueabihf/pkgconfig:/usr/share/pkgconfig
 
-      - name: Inspect ARMHF binary
+              cargo build --locked \
+                --package ruffle_desktop \
+                --release \
+                --target armv7-unknown-linux-gnueabihf \
+                --features jpegxr,fontconfig-dlopen
+
+              mkdir -p /work/artifact
+              cp target/armv7-unknown-linux-gnueabihf/release/ruffle_desktop /work/artifact/ruffle
+              cp LICENSE.md /work/artifact/LICENSE.md
+              cp README.md /work/artifact/README.md
+              chmod +x /work/artifact/ruffle
+            '
+
+      - name: Verify Ubuntu 18.04 ARMHF compatibility
         run: |
-          file ruffle-src/target/armv7-unknown-linux-gnueabihf/release/ruffle_desktop
-          arm-linux-gnueabihf-readelf -h ruffle-src/target/armv7-unknown-linux-gnueabihf/release/ruffle_desktop
-          arm-linux-gnueabihf-readelf -d ruffle-src/target/armv7-unknown-linux-gnueabihf/release/ruffle_desktop || true
+          set -euxo pipefail
+          file artifact/ruffle
+          readelf -h artifact/ruffle
+          echo 'Required GLIBC symbol versions:'
+          readelf --version-info artifact/ruffle | grep -o 'GLIBC_[0-9.]*' | sort -Vu | tee glibc-versions.txt
+          MAX_GLIBC="$(tail -n 1 glibc-versions.txt)"
+          test "$MAX_GLIBC" = "GLIBC_2.27" || { echo "Unexpected max GLIBC requirement: $MAX_GLIBC"; exit 1; }
+          echo 'Dynamic dependencies:'
+          readelf -d artifact/ruffle | grep NEEDED | tee needed-libs.txt
+          ! grep -q 'libssl.so.3' needed-libs.txt
+          ! grep -q 'libcrypto.so.3' needed-libs.txt
 
       - name: Package artifact
         run: |
-          mkdir -p artifact
-          cp ruffle-src/target/armv7-unknown-linux-gnueabihf/release/ruffle_desktop artifact/ruffle
-          cp ruffle-src/LICENSE.md artifact/LICENSE.md
-          cp ruffle-src/README.md artifact/README.md
-          chmod +x artifact/ruffle
-          tar -C artifact -czf ruffle-armhf.tar.gz .
-          sha256sum ruffle-armhf.tar.gz | tee ruffle-armhf.tar.gz.sha256
+          tar -C artifact -czf ruffle-armhf-bionic.tar.gz .
+          sha256sum ruffle-armhf-bionic.tar.gz | tee ruffle-armhf-bionic.tar.gz.sha256
 
       - name: Upload ARMHF artifact
         uses: actions/upload-artifact@v7
         with:
-          name: ruffle-armhf
+          name: ruffle-armhf-bionic
           path: |
-            ruffle-armhf.tar.gz
-            ruffle-armhf.tar.gz.sha256
+            ruffle-armhf-bionic.tar.gz
+            ruffle-armhf-bionic.tar.gz.sha256
+            glibc-versions.txt
+            needed-libs.txt
           if-no-files-found: error
