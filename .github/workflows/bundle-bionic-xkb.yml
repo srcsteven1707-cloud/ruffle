@@ -29,6 +29,8 @@ jobs:
               dpkg --add-architecture armhf
               apt-get update
               DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+                file \
+                binutils \
                 libxkbcommon-x11-0:armhf \
                 libxkbcommon0:armhf \
                 libxcb-xkb1:armhf \
