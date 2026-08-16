@@ -66,6 +66,10 @@ jobs:
                 libfontconfig1-dev:armhf \
                 libssl-dev:armhf
 
+              export PKG_CONFIG_ALLOW_CROSS=1
+              export PKG_CONFIG_PATH=/usr/lib/arm-linux-gnueabihf/pkgconfig:/usr/share/pkgconfig
+              export PKG_CONFIG_LIBDIR=/usr/lib/arm-linux-gnueabihf/pkgconfig:/usr/share/pkgconfig
+
               # freetype-sys 0.23 only uses this pkg-config floor as a metadata gate.
               # Let compilation/linking prove whether Bionic FreeType 2.8.1 provides
               # the actual API/symbols required by current Ruffle.
@@ -105,9 +109,6 @@ jobs:
               export CC_armv7_unknown_linux_gnueabihf=arm-linux-gnueabihf-gcc
               export CXX_armv7_unknown_linux_gnueabihf=arm-linux-gnueabihf-g++
               export AR_armv7_unknown_linux_gnueabihf=arm-linux-gnueabihf-ar
-              export PKG_CONFIG_ALLOW_CROSS=1
-              export PKG_CONFIG_PATH=/usr/lib/arm-linux-gnueabihf/pkgconfig:/usr/share/pkgconfig
-              export PKG_CONFIG_LIBDIR=/usr/lib/arm-linux-gnueabihf/pkgconfig:/usr/share/pkgconfig
 
               cargo build --locked \
                 --package ruffle_desktop \
