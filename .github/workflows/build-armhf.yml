@@ -1,0 +1,97 @@
+name: Build Ruffle ARMHF
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-armhf.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-armhf:
+    name: armv7-unknown-linux-gnueabihf
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout build repository
+        uses: actions/checkout@v7
+
+      - name: Checkout upstream Ruffle
+        uses: actions/checkout@v7
+        with:
+          repository: ruffle-rs/ruffle
+          ref: master
+          path: ruffle-src
+
+      - name: Install Rust ARMHF target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: armv7-unknown-linux-gnueabihf
+
+      - name: Install cross compiler and ARMHF development libraries
+        run: |
+          sudo dpkg --add-architecture armhf
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc-arm-linux-gnueabihf \
+            g++-arm-linux-gnueabihf \
+            pkg-config \
+            default-jre-headless \
+            libasound2-dev:armhf \
+            libudev-dev:armhf \
+            libfontconfig1-dev:armhf \
+            libssl-dev:armhf
+
+      - name: Configure ARMHF cross compilation
+        run: |
+          mkdir -p ruffle-src/.cargo
+          cat > ruffle-src/.cargo/config.toml <<'EOF'
+          [target.armv7-unknown-linux-gnueabihf]
+          linker = "arm-linux-gnueabihf-gcc"
+          ar = "arm-linux-gnueabihf-ar"
+          EOF
+
+      - name: Build Ruffle desktop ARMHF
+        working-directory: ruffle-src
+        env:
+          CC_armv7_unknown_linux_gnueabihf: arm-linux-gnueabihf-gcc
+          CXX_armv7_unknown_linux_gnueabihf: arm-linux-gnueabihf-g++
+          AR_armv7_unknown_linux_gnueabihf: arm-linux-gnueabihf-ar
+          PKG_CONFIG_ALLOW_CROSS: '1'
+          PKG_CONFIG_PATH: /usr/lib/arm-linux-gnueabihf/pkgconfig:/usr/share/pkgconfig
+          PKG_CONFIG_LIBDIR: /usr/lib/arm-linux-gnueabihf/pkgconfig:/usr/share/pkgconfig
+        run: |
+          cargo build --locked \
+            --package ruffle_desktop \
+            --release \
+            --target armv7-unknown-linux-gnueabihf \
+            --features jpegxr,fontconfig-dlopen
+
+      - name: Inspect ARMHF binary
+        run: |
+          file ruffle-src/target/armv7-unknown-linux-gnueabihf/release/ruffle_desktop
+          arm-linux-gnueabihf-readelf -h ruffle-src/target/armv7-unknown-linux-gnueabihf/release/ruffle_desktop
+          arm-linux-gnueabihf-readelf -d ruffle-src/target/armv7-unknown-linux-gnueabihf/release/ruffle_desktop || true
+
+      - name: Package artifact
+        run: |
+          mkdir -p artifact
+          cp ruffle-src/target/armv7-unknown-linux-gnueabihf/release/ruffle_desktop artifact/ruffle
+          cp ruffle-src/LICENSE.md artifact/LICENSE.md
+          cp ruffle-src/README.md artifact/README.md
+          chmod +x artifact/ruffle
+          tar -C artifact -czf ruffle-armhf.tar.gz .
+          sha256sum ruffle-armhf.tar.gz | tee ruffle-armhf.tar.gz.sha256
+
+      - name: Upload ARMHF artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ruffle-armhf
+          path: |
+            ruffle-armhf.tar.gz
+            ruffle-armhf.tar.gz.sha256
+          if-no-files-found: error
