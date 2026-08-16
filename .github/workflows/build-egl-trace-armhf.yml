@@ -1,0 +1,40 @@
+name: Build DarkFate EGL Trace ARMHF
+
+on:
+  push:
+    paths:
+      - 'darkfate/egl_trace.c'
+      - '.github/workflows/build-egl-trace-armhf.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build ARMHF trace shim in Ubuntu 18.04
+        run: |
+          set -euxo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/out"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/work" \
+            ubuntu:18.04 bash -lc '
+              set -eux
+              apt-get update
+              DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+                gcc-arm-linux-gnueabihf binutils-arm-linux-gnueabihf file ca-certificates
+              arm-linux-gnueabihf-gcc -shared -fPIC -O2 \
+                -o /work/out/darkfate_egl_trace.so \
+                /work/darkfate/egl_trace.c -ldl
+              file /work/out/darkfate_egl_trace.so
+              arm-linux-gnueabihf-readelf -h /work/out/darkfate_egl_trace.so
+              arm-linux-gnueabihf-readelf -d /work/out/darkfate_egl_trace.so | grep NEEDED || true
+              arm-linux-gnueabihf-readelf --version-info /work/out/darkfate_egl_trace.so | grep -o "GLIBC_[0-9.]*" | sort -Vu | tail -1 || true
+              sha256sum /work/out/darkfate_egl_trace.so > /work/out/darkfate_egl_trace.so.sha256
+            '
+      - uses: actions/upload-artifact@v4
+        with:
+          name: darkfate-egl-trace-armhf
+          path: |
+            out/darkfate_egl_trace.so
+            out/darkfate_egl_trace.so.sha256
