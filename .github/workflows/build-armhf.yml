@@ -53,6 +53,8 @@ jobs:
                 git \
                 file \
                 python3 \
+                clang \
+                libclang-dev \
                 build-essential \
                 gcc-arm-linux-gnueabihf \
                 g++-arm-linux-gnueabihf \
