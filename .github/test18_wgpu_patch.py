@@ -138,3 +138,21 @@ s = s.replace(old_attrs, new_attrs, 1)
 
 p.write_text(s)
 print(f'Patched Linux ARM EGL presentation with leaked persistent 1280x960 DarkFate fbdev window in {p}')
+
+# Test26: detail each GLES readback fallback so hit-effect traffic can be
+# correlated by target/offset/length. This changes logging only.
+adapter_matches = list(Path.home().glob('.cargo/registry/src/*/wgpu-hal-27.0.4/src/gles/adapter.rs'))
+if len(adapter_matches) != 1:
+    raise SystemExit(f'expected exactly one wgpu-hal 27.0.4 adapter.rs, found {adapter_matches}')
+
+ap = adapter_matches[0]
+a = ap.read_text()
+old_fake = '            log::error!("Fake map");\n            let length = dst_data.len();\n'
+new_fake = '''            let length = dst_data.len();
+            log::error!("Fake map target={target:#x} offset={offset} length={length}");
+'''
+if a.count(old_fake) != 1:
+    raise SystemExit(f'expected one Fake map block, found {a.count(old_fake)}')
+a = a.replace(old_fake, new_fake, 1)
+ap.write_text(a)
+print(f'Patched Fake map diagnostics with target/offset/length in {ap}')
