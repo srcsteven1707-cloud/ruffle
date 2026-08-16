@@ -18,37 +18,13 @@ if s.count(old_threshold) != 1:
     raise SystemExit(f'expected one EGL tier threshold condition, found {s.count(old_threshold)}')
 s = s.replace(old_threshold, new_threshold, 1)
 
-# Define the proven 16-byte DarkFate fbdev native-window descriptor at module
-# scope and keep one boxed instance owned by the Swapchain. The Mali r14p0
-# driver retains the native-window pointer after eglCreateWindowSurface, so the
-# pointed-to descriptor must remain alive for every later eglSwapBuffers call.
-old_swapchain = '''#[derive(Debug)]
-pub struct Swapchain {
-    surface: khronos_egl::Surface,
-    wl_window: Option<*mut ffi::c_void>,
-'''
-new_swapchain = '''#[repr(C)]
-#[derive(Debug)]
-struct DarkFateFbdevWindow {
-    width16: u16,
-    height16: u16,
-    zero: u32,
-    width32: u32,
-    height32: u32,
-}
-
-#[derive(Debug)]
-pub struct Swapchain {
-    surface: khronos_egl::Surface,
-    wl_window: Option<*mut ffi::c_void>,
-    darkfate_fbdev_window: Option<Box<DarkFateFbdevWindow>>,
-'''
-if s.count(old_swapchain) != 1:
-    raise SystemExit(f'expected one Swapchain declaration block, found {s.count(old_swapchain)}')
-s = s.replace(old_swapchain, new_swapchain, 1)
-
-# Test17-proven 16-byte fbdev native window. Allocate it on the heap so its
-# address remains stable, then move the Box into Swapchain after surface creation.
+# Test17-proven 16-byte DarkFate fbdev native-window descriptor.
+# The Mali r14p0 driver retains the native-window pointer after
+# eglCreateWindowSurface, so the pointed-to descriptor must remain alive for
+# every later eglSwapBuffers call. For this diagnostic build, leak exactly one
+# 16-byte descriptor per surface configuration. This deliberately avoids
+# touching upstream Swapchain ownership/layout while guaranteeing pointer
+# lifetime until process exit.
 old_native = '''                let mut wl_window = None;
                 let (mut temp_xlib_handle, mut temp_xcb_handle);
                 let native_window_ptr = match (self.wsi.kind, self.raw_window_handle) {
@@ -64,24 +40,34 @@ old_native = '''                let mut wl_window = None;
 '''
 new_native = '''                let mut wl_window = None;
                 let (mut temp_xlib_handle, mut temp_xcb_handle);
+                #[repr(C)]
+                struct DarkFateFbdevWindow {
+                    width16: u16,
+                    height16: u16,
+                    zero: u32,
+                    width32: u32,
+                    height32: u32,
+                }
                 let use_darkfate_fbdev =
                     cfg!(all(target_os = "linux", target_arch = "arm"));
-                let mut darkfate_fbdev_window = if use_darkfate_fbdev {
-                    Some(Box::new(DarkFateFbdevWindow {
-                        width16: config.extent.width as u16,
-                        height16: config.extent.height as u16,
-                        zero: 0,
-                        width32: config.extent.width,
-                        height32: config.extent.height,
-                    }))
+                let darkfate_fbdev_window_ptr = if use_darkfate_fbdev {
+                    let leaked = alloc::boxed::Box::leak(alloc::boxed::Box::new(
+                        DarkFateFbdevWindow {
+                            width16: 1280,
+                            height16: 960,
+                            zero: 0,
+                            width32: 1280,
+                            height32: 960,
+                        },
+                    ));
+                    ptr::from_mut(leaked).cast::<ffi::c_void>()
                 } else {
-                    None
+                    ptr::null_mut()
                 };
                 let native_window_ptr = match (self.wsi.kind, self.raw_window_handle) {
                     (WindowKind::Unknown | WindowKind::X11, Rwh::Xlib(handle)) => {
                         if use_darkfate_fbdev {
-                            ptr::from_mut(darkfate_fbdev_window.as_mut().unwrap().as_mut())
-                                .cast::<ffi::c_void>()
+                            darkfate_fbdev_window_ptr
                         } else {
                             temp_xlib_handle = handle.window;
                             ptr::from_mut(&mut temp_xlib_handle).cast::<ffi::c_void>()
@@ -90,8 +76,7 @@ new_native = '''                let mut wl_window = None;
                     (WindowKind::AngleX11, Rwh::Xlib(handle)) => handle.window as *mut ffi::c_void,
                     (WindowKind::Unknown | WindowKind::X11, Rwh::Xcb(handle)) => {
                         if use_darkfate_fbdev {
-                            ptr::from_mut(darkfate_fbdev_window.as_mut().unwrap().as_mut())
-                                .cast::<ffi::c_void>()
+                            darkfate_fbdev_window_ptr
                         } else {
                             temp_xcb_handle = handle.window;
                             ptr::from_mut(&mut temp_xcb_handle).cast::<ffi::c_void>()
@@ -151,22 +136,5 @@ if s.count(old_attrs) != 1:
     raise SystemExit(f'expected one EGL surface-attributes block, found {s.count(old_attrs)}')
 s = s.replace(old_attrs, new_attrs, 1)
 
-# Move the Box into Swapchain so the native-window pointer remains valid until
-# the EGL surface is unconfigured and destroyed.
-old_init = '''        *swapchain = Some(Swapchain {
-            surface,
-            wl_window,
-            renderbuffer,
-'''
-new_init = '''        *swapchain = Some(Swapchain {
-            surface,
-            wl_window,
-            darkfate_fbdev_window,
-            renderbuffer,
-'''
-if s.count(old_init) != 1:
-    raise SystemExit(f'expected one Swapchain initializer, found {s.count(old_init)}')
-s = s.replace(old_init, new_init, 1)
-
 p.write_text(s)
-print(f'Patched Linux ARM EGL presentation with persistent DarkFate fbdev window in {p}')
+print(f'Patched Linux ARM EGL presentation with leaked persistent 1280x960 DarkFate fbdev window in {p}')
