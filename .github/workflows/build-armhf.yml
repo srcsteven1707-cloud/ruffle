@@ -32,10 +32,22 @@ jobs:
           toolchain: stable
           targets: armv7-unknown-linux-gnueabihf
 
-      - name: Install cross compiler and ARMHF development libraries
+      - name: Configure Ubuntu ARMHF package sources
         run: |
           sudo dpkg --add-architecture armhf
+          sudo sed -i '/^Types: deb$/a Architectures: amd64' /etc/apt/sources.list.d/ubuntu.sources
+          sudo tee /etc/apt/sources.list.d/armhf.sources >/dev/null <<'EOF'
+          Types: deb
+          URIs: http://ports.ubuntu.com/ubuntu-ports
+          Suites: noble noble-updates noble-backports noble-security
+          Components: main universe restricted multiverse
+          Architectures: armhf
+          Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+          EOF
           sudo apt-get update
+
+      - name: Install cross compiler and ARMHF development libraries
+        run: |
           sudo apt-get install -y \
             gcc-arm-linux-gnueabihf \
             g++-arm-linux-gnueabihf \
