@@ -22,7 +22,8 @@ jobs:
               set -eux
               apt-get update
               DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-                gcc-arm-linux-gnueabihf binutils-arm-linux-gnueabihf file ca-certificates
+                gcc-arm-linux-gnueabihf binutils-arm-linux-gnueabihf \
+                libc6-dev-armhf-cross file ca-certificates
               arm-linux-gnueabihf-gcc -shared -fPIC -O2 \
                 -o /work/out/darkfate_egl_trace.so \
                 /work/darkfate/egl_trace.c -ldl
