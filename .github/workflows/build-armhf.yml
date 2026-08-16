@@ -34,7 +34,6 @@ jobs:
             ubuntu:18.04 \
             bash -lc '
               set -euxo pipefail
-
               export DEBIAN_FRONTEND=noninteractive
 
               cat >/etc/apt/sources.list <<"EOF"
@@ -53,6 +52,7 @@ jobs:
                 curl \
                 git \
                 file \
+                python3 \
                 build-essential \
                 gcc-arm-linux-gnueabihf \
                 g++-arm-linux-gnueabihf \
