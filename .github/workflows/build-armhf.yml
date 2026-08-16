@@ -67,6 +67,29 @@ jobs:
           ar = "arm-linux-gnueabihf-ar"
           EOF
 
+      - name: Patch FreeType 32-bit integer widths
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('ruffle-src/frontend-utils/src/backends/ui/freetype_font_renderer.rs')
+          s = p.read_text()
+          replacements = {
+              'convert_26_6_to_twips(self.size_metrics().ascender)':
+                  'convert_26_6_to_twips(self.size_metrics().ascender.into())',
+              'convert_26_6_to_twips(-self.size_metrics().descender)':
+                  'convert_26_6_to_twips((-self.size_metrics().descender).into())',
+              'convert_26_6_to_twips(glyph.advance().x)':
+                  'convert_26_6_to_twips(glyph.advance().x.into())',
+              'convert_26_6_to_twips(kerning.x)':
+                  'convert_26_6_to_twips(kerning.x.into())',
+          }
+          for old, new in replacements.items():
+              if old not in s:
+                  raise SystemExit(f'expected source pattern not found: {old}')
+              s = s.replace(old, new, 1)
+          p.write_text(s)
+          PY
+
       - name: Build Ruffle desktop ARMHF
         working-directory: ruffle-src
         env:
